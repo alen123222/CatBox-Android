@@ -47,6 +47,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -847,14 +851,52 @@ fun PixelArtScreen(onBack: () -> Unit) {
 }
 
 // -------------------------------------------------------------
-// 7. 电量伪装 (全屏沉浸防借手机神器)
+// 7. 电量伪装 (即时系统状态栏覆盖 & 沉浸防借神器)
 // -------------------------------------------------------------
 @Composable
 fun FakeBatteryScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
     var fakePercent by remember { mutableIntStateOf(1) }
+    var isCharging by remember { mutableStateOf(false) }
     var isLowBatteryMode by remember { mutableStateOf(true) }
+    var isOverlayEnabled by remember { mutableStateOf(FakeStatusBarService.isRunning) }
 
-    ToolScaffold(title = "电量伪装", subtitle = "聚会防借手机 · 自定义超低/满电电量显示", onBack = onBack) {
+    val updateOverlay = { enabled: Boolean, pct: Int, charging: Boolean, lowPwr: Boolean ->
+        if (enabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                Toast.makeText(context, "请先授予「悬浮窗 / 在其他应用上层显示」权限以覆盖状态栏喵！", Toast.LENGTH_LONG).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
+                )
+                context.startActivity(intent)
+            } else {
+                val serviceIntent = Intent(context, FakeStatusBarService::class.java).apply {
+                    action = FakeStatusBarService.ACTION_START_OR_UPDATE
+                    putExtra(FakeStatusBarService.EXTRA_LEVEL, pct)
+                    putExtra(FakeStatusBarService.EXTRA_CHARGING, charging)
+                    putExtra(FakeStatusBarService.EXTRA_LOW_POWER, lowPwr)
+                    putExtra(FakeStatusBarService.EXTRA_DARK, true)
+                }
+                context.startService(serviceIntent)
+                isOverlayEnabled = true
+            }
+        } else {
+            val stopIntent = Intent(context, FakeStatusBarService::class.java).apply {
+                action = FakeStatusBarService.ACTION_STOP
+            }
+            context.startService(stopIntent)
+            isOverlayEnabled = false
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            // 保留后台运行或可选择退出时维持状态
+        }
+    }
+
+    ToolScaffold(title = "电量伪装", subtitle = "系统状态栏即时伪装 · 聚会防借手机神器", onBack = onBack) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -865,7 +907,7 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
+                    .height(220.dp)
                     .shadow(3.dp, RoundedCornerShape(24.dp)),
                 shape = RoundedCornerShape(24.dp),
                 color = if (fakePercent <= 10) Color(0xFF1E293B) else Color(0xFF0F172A)
@@ -876,7 +918,7 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (fakePercent <= 5) "🪫" else "🔋",
+                        text = if (isCharging) "⚡" else if (fakePercent <= 5) "🪫" else "🔋",
                         fontSize = 54.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -887,9 +929,37 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
                         color = if (fakePercent <= 10) Color(0xFFEF4444) else Color(0xFF10B981)
                     )
                     Text(
-                        text = if (fakePercent <= 5) "电量严重不足，即将关机..." else "电池健康状态良好",
+                        text = if (isOverlayEnabled) "🟢 状态栏即时伪装已开启 (全局覆盖)" else "⚪ 状态栏即时伪装未开启",
                         fontSize = 12.sp,
-                        color = Color(0xFF94A3B8)
+                        color = if (isOverlayEnabled) Color(0xFF34D399) else Color(0xFF94A3B8)
+                    )
+                }
+            }
+
+            // 状态栏实时开关卡片
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(2.dp, RoundedCornerShape(20.dp)),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("系统状态栏实时悬浮伪装", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E293B))
+                        Text("修改后在整个手机顶部状态栏即时生效", fontSize = 12.sp, color = Color(0xFF64748B))
+                    }
+                    Switch(
+                        checked = isOverlayEnabled,
+                        onCheckedChange = { checked ->
+                            updateOverlay(checked, fakePercent, isCharging, isLowBatteryMode)
+                        }
                     )
                 }
             }
@@ -901,25 +971,34 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
                 shape = RoundedCornerShape(20.dp),
                 color = Color.White
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("调整伪装电量：", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = fakePercent == 1,
-                            onClick = { fakePercent = 1 },
+                            onClick = {
+                                fakePercent = 1
+                                if (isOverlayEnabled) updateOverlay(true, 1, isCharging, isLowBatteryMode)
+                            },
                             label = { Text("1% 极限濒死") },
                             shape = RoundedCornerShape(10.dp)
                         )
                         FilterChip(
                             selected = fakePercent == 3,
-                            onClick = { fakePercent = 3 },
+                            onClick = {
+                                fakePercent = 3
+                                if (isOverlayEnabled) updateOverlay(true, 3, isCharging, isLowBatteryMode)
+                            },
                             label = { Text("3% 关机预警") },
                             shape = RoundedCornerShape(10.dp)
                         )
                         FilterChip(
                             selected = fakePercent == 100,
-                            onClick = { fakePercent = 100 },
+                            onClick = {
+                                fakePercent = 100
+                                if (isOverlayEnabled) updateOverlay(true, 100, isCharging, isLowBatteryMode)
+                            },
                             label = { Text("100% 满血") },
                             shape = RoundedCornerShape(10.dp)
                         )
@@ -927,9 +1006,27 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
 
                     Slider(
                         value = fakePercent.toFloat(),
-                        onValueChange = { fakePercent = it.toInt() },
+                        onValueChange = {
+                            fakePercent = it.toInt()
+                            if (isOverlayEnabled) updateOverlay(true, fakePercent, isCharging, isLowBatteryMode)
+                        },
                         valueRange = 1f..100f
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("伪装充电中 ⚡", fontSize = 13.sp, color = Color(0xFF334155))
+                        Switch(
+                            checked = isCharging,
+                            onCheckedChange = {
+                                isCharging = it
+                                if (isOverlayEnabled) updateOverlay(true, fakePercent, isCharging, isLowBatteryMode)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1023,25 +1120,45 @@ fun VibratorScreen(onBack: () -> Unit) {
 fun WallpaperExtractorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var wallpaperBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var lockWallpaperBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: 桌面壁纸, 1: 锁屏壁纸
     var isLoading by remember { mutableStateOf(true) }
+    var hasPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            try {
-                val wm = WallpaperManager.getInstance(context)
-                val drawable = wm.drawable
-                if (drawable is BitmapDrawable) {
-                    wallpaperBitmap = drawable.bitmap
-                }
-            } catch (e: Exception) {
-                // 忽略
+    val loadWallpapers = {
+        isLoading = true
+        coroutineScope.launch(Dispatchers.IO) {
+            val sysBmp = WallpaperHelper.getWallpaperBitmap(context, WallpaperManager.FLAG_SYSTEM)
+            val lockBmp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                WallpaperHelper.getWallpaperBitmap(context, WallpaperManager.FLAG_LOCK)
+            } else null
+
+            withContext(Dispatchers.Main) {
+                wallpaperBitmap = sysBmp
+                lockWallpaperBitmap = lockBmp
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
-    ToolScaffold(title = "提取手机壁纸", subtitle = "原画无损导出当前桌面主屏幕壁纸", onBack = onBack) {
+    LaunchedEffect(Unit) {
+        loadWallpapers()
+    }
+
+    val currentDisplayBitmap = if (selectedTab == 0) wallpaperBitmap else (lockWallpaperBitmap ?: wallpaperBitmap)
+
+    ToolScaffold(title = "提取手机壁纸", subtitle = "原画无损提取桌面与锁屏壁纸", onBack = onBack) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1049,53 +1166,136 @@ fun WallpaperExtractorScreen(onBack: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // 权限提示引导条
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasPermission) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFFFEF3C7),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Android 13+ 需要文件存储权限以读取原图壁纸",
+                            fontSize = 11.sp,
+                            color = Color(0xFF92400E),
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            try {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                } else {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }) {
+                            Text("去授权", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Tab 切换：主屏 / 锁屏
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    label = { Text("主屏幕壁纸") },
+                    shape = RoundedCornerShape(10.dp)
+                )
+                FilterChip(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    label = { Text("锁屏壁纸") },
+                    shape = RoundedCornerShape(10.dp)
+                )
+            }
+
             if (isLoading) {
-                Box(modifier = Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color(0xFF3B82F6))
                 }
-            } else if (wallpaperBitmap != null) {
+            } else if (currentDisplayBitmap != null) {
+                val bmp = currentDisplayBitmap
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(340.dp)
+                        .height(380.dp)
                         .clip(RoundedCornerShape(20.dp)),
                     color = Color.Black
                 ) {
                     Image(
-                        bitmap = wallpaperBitmap!!.asImageBitmap(),
+                        bitmap = bmp.asImageBitmap(),
                         contentDescription = "Current Wallpaper",
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
 
+                Text(
+                    text = "分辨率: ${bmp.width} × ${bmp.height} 像素",
+                    fontSize = 12.sp,
+                    color = Color(0xFF64748B)
+                )
+
                 Button(
                     onClick = {
-                        val bmp = wallpaperBitmap
-                        if (bmp != null) {
-                            coroutineScope.launch {
-                                val ok = saveBitmapToGallery(context, bmp, "CatWallpaper_${System.currentTimeMillis()}.png")
-                                if (ok) Toast.makeText(context, "壁纸已无损保存至相册！", Toast.LENGTH_SHORT).show()
-                                else Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
-                            }
+                        coroutineScope.launch {
+                            val filename = if (selectedTab == 0) "HomeWallpaper_${System.currentTimeMillis()}.png" else "LockWallpaper_${System.currentTimeMillis()}.png"
+                            val ok = saveBitmapToGallery(context, bmp, filename)
+                            if (ok) Toast.makeText(context, "壁纸已无损保存至相册！", Toast.LENGTH_SHORT).show()
+                            else Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6))
                 ) {
-                    Text("导出壁纸至相册 (PNG原画)", fontWeight = FontWeight.Bold)
+                    Text("导出当前壁纸至相册 (PNG无损原画)", fontWeight = FontWeight.Bold)
                 }
             } else {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp)
+                        .height(240.dp)
                         .clip(RoundedCornerShape(20.dp)),
                     color = Color.White
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("系统禁止直接读取壁纸或未设置壁纸", color = Color(0xFF94A3B8))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("未能直接读取到壁纸数据", fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Android 13+ 系统对动态壁纸或系统默认壁纸实施沙箱保护。若您使用的是静态壁纸，请点击下方授予全部文件管理权限重试喵~",
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = { loadWallpapers() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("重新尝试读取")
+                        }
                     }
                 }
             }

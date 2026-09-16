@@ -1,28 +1,38 @@
 package com.lingcat.a4cropper
 
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
 class FakeStatusBarService : Service() {
 
     private var windowManager: WindowManager? = null
-    private var overlayView: FrameLayout? = null
+    private var overlayContainer: FrameLayout? = null
+    private var pillLayout: LinearLayout? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
+
+    private lateinit var prefs: SharedPreferences
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        prefs = getSharedPreferences("FakeStatusBarPrefs", Context.MODE_PRIVATE)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
@@ -41,46 +51,52 @@ class FakeStatusBarService : Service() {
         return START_STICKY
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun showOrUpdateOverlay(level: Int, isCharging: Boolean, isLowPower: Boolean, isDark: Boolean) {
         if (windowManager == null) {
             windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         }
 
         val textColor = if (isDark) Color.WHITE else Color.BLACK
-        val barBgColor = if (isDark) Color.argb(220, 15, 15, 18) else Color.argb(220, 245, 245, 245)
+        val pillBgColor = if (isDark) Color.argb(230, 24, 24, 28) else Color.argb(230, 240, 240, 245)
 
-        val statusHeight = getStatusBarHeight()
+        if (overlayContainer == null) {
+            val container = FrameLayout(this)
 
-        if (overlayView == null) {
-            overlayView = FrameLayout(this).apply {
-                setBackgroundColor(barBgColor)
-            }
-
-            // Right layout container for battery indicator
-            val rightLayout = LinearLayout(this).apply {
+            // 浮动电量小胶囊 (Pill Layout)
+            val pill = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL or Gravity.END
-                setPadding(0, 0, dpToPx(16), 0)
-            }
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dpToPx(8), dpToPx(3), dpToPx(8), dpToPx(3))
 
+                val pillDrawable = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(14).toFloat()
+                    setColor(pillBgColor)
+                    setStroke(dpToPx(1), if (isDark) Color.argb(80, 255, 255, 255) else Color.argb(40, 0, 0, 0))
+                }
+                background = pillDrawable
+            }
+            pillLayout = pill
+
+            // 1. 百分比文字
             val tvPercent = TextView(this).apply {
-                id = View.generateViewId()
                 tag = "tv_percent"
-                textSize = 13f
+                textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(textColor)
                 text = "$level%"
             }
 
-            // Battery body icon container
+            // 2. 电池框主体容器
             val batteryContainer = FrameLayout(this).apply {
-                val pL = LinearLayout.LayoutParams(dpToPx(24), dpToPx(13)).apply {
-                    marginStart = dpToPx(6)
+                val pL = LinearLayout.LayoutParams(dpToPx(22), dpToPx(11)).apply {
+                    marginStart = dpToPx(5)
                 }
                 layoutParams = pL
             }
 
-            // Outer border
+            // 外边框
             val outerBorder = View(this).apply {
                 tag = "outer_border"
                 val bg = android.graphics.drawable.GradientDrawable().apply {
@@ -93,7 +109,7 @@ class FakeStatusBarService : Service() {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             }
 
-            // Inner fill
+            // 内部电量条
             val innerFill = View(this).apply {
                 tag = "inner_fill"
                 val fillColor = when {
@@ -107,15 +123,15 @@ class FakeStatusBarService : Service() {
                     setColor(fillColor)
                 }
                 background = bg
-                val fillWidth = (dpToPx(20) * (level.coerceIn(5, 100) / 100f)).toInt()
-                val lp = FrameLayout.LayoutParams(fillWidth, dpToPx(9)).apply {
+                val fillWidth = (dpToPx(18) * (level.coerceIn(5, 100) / 100f)).toInt()
+                val lp = FrameLayout.LayoutParams(fillWidth, dpToPx(7)).apply {
                     gravity = Gravity.CENTER_VERTICAL or Gravity.START
                     marginStart = dpToPx(2)
                 }
                 layoutParams = lp
             }
 
-            // Battery tip
+            // 电池小正极凸起
             val batteryTip = View(this).apply {
                 tag = "battery_tip"
                 val bg = android.graphics.drawable.GradientDrawable().apply {
@@ -130,14 +146,14 @@ class FakeStatusBarService : Service() {
                 layoutParams = pL
             }
 
-            // Charging lightning text / icon
+            // 闪电图标
             val tvCharging = TextView(this).apply {
                 tag = "tv_charging"
                 text = "⚡"
-                textSize = 10f
+                textSize = 9f
                 setTextColor(if (isCharging) Color.parseColor("#FFD60A") else Color.TRANSPARENT)
                 val pL = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    marginStart = dpToPx(4)
+                    marginStart = dpToPx(3)
                 }
                 layoutParams = pL
                 visibility = if (isCharging) View.VISIBLE else View.GONE
@@ -146,18 +162,13 @@ class FakeStatusBarService : Service() {
             batteryContainer.addView(outerBorder)
             batteryContainer.addView(innerFill)
 
-            rightLayout.addView(tvPercent)
-            rightLayout.addView(batteryContainer)
-            rightLayout.addView(batteryTip)
-            rightLayout.addView(tvCharging)
+            pill.addView(tvPercent)
+            pill.addView(batteryContainer)
+            pill.addView(batteryTip)
+            pill.addView(tvCharging)
 
-            val rootLp = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            ).apply {
-                gravity = Gravity.CENTER_VERTICAL or Gravity.END
-            }
-            overlayView?.addView(rightLayout, rootLp)
+            container.addView(pill)
+            overlayContainer = container
 
             val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -166,35 +177,89 @@ class FakeStatusBarService : Service() {
                 WindowManager.LayoutParams.TYPE_PHONE
             }
 
+            // 读取已保存的位置偏好 (默认在右上角，距离屏幕边缘 x=16dp, y=系统状态栏高度 / 4)
+            val savedX = prefs.getInt("pos_x", dpToPx(16))
+            val savedY = prefs.getInt("pos_y", getStatusBarHeight() / 4)
+
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                statusHeight,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = 0
-                y = 0
+                gravity = Gravity.TOP or Gravity.END
+                x = savedX
+                y = savedY
+            }
+            layoutParams = params
+
+            // 触摸与自由拖拽定位逻辑 (长按或直接拖动均可顺滑平移)
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+            var isMoving = false
+
+            pill.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        isMoving = false
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = (initialTouchX - event.rawX).toInt() // Gravity 为 TOP|END，x 越大离右侧越远
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10 || isMoving) {
+                            isMoving = true
+                            params.x = (initialX + dx).coerceAtLeast(0)
+                            params.y = (initialY + dy).coerceAtLeast(0)
+                            try {
+                                windowManager?.updateViewLayout(container, params)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (isMoving) {
+                            // 持久化保存用户拖拽后的位置
+                            prefs.edit()
+                                .putInt("pos_x", params.x)
+                                .putInt("pos_y", params.y)
+                                .apply()
+                        }
+                        true
+                    }
+                    else -> false
+                }
             }
 
             try {
-                windowManager?.addView(overlayView, params)
+                windowManager?.addView(container, params)
                 isRunning = true
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         } else {
-            // Update existing view
-            overlayView?.setBackgroundColor(barBgColor)
-            val tvPercent = overlayView?.findViewWithTag<TextView>("tv_percent")
-            val innerFill = overlayView?.findViewWithTag<View>("inner_fill")
-            val outerBorder = overlayView?.findViewWithTag<View>("outer_border")
-            val batteryTip = overlayView?.findViewWithTag<View>("battery_tip")
-            val tvCharging = overlayView?.findViewWithTag<TextView>("tv_charging")
+            // 更新已存在的视图内容与外观
+            val pill = pillLayout
+            val pillBg = pill?.background as? android.graphics.drawable.GradientDrawable
+            pillBg?.setColor(pillBgColor)
+            pillBg?.setStroke(dpToPx(1), if (isDark) Color.argb(80, 255, 255, 255) else Color.argb(40, 0, 0, 0))
+
+            val tvPercent = pill?.findViewWithTag<TextView>("tv_percent")
+            val innerFill = pill?.findViewWithTag<View>("inner_fill")
+            val outerBorder = pill?.findViewWithTag<View>("outer_border")
+            val batteryTip = pill?.findViewWithTag<View>("battery_tip")
+            val tvCharging = pill?.findViewWithTag<TextView>("tv_charging")
 
             tvPercent?.text = "$level%"
             tvPercent?.setTextColor(textColor)
@@ -205,25 +270,16 @@ class FakeStatusBarService : Service() {
                 else -> textColor
             }
 
-            outerBorder?.background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(3).toFloat()
-                setStroke(dpToPx(1), textColor)
-                setColor(Color.TRANSPARENT)
-            }
+            val outerDrawable = outerBorder?.background as? android.graphics.drawable.GradientDrawable
+            outerDrawable?.setStroke(dpToPx(1), textColor)
 
-            batteryTip?.background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(1).toFloat()
-                setColor(textColor)
-            }
+            val tipDrawable = batteryTip?.background as? android.graphics.drawable.GradientDrawable
+            tipDrawable?.setColor(textColor)
 
-            innerFill?.background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(2).toFloat()
-                setColor(fillColor)
-            }
-            val fillWidth = (dpToPx(20) * (level.coerceIn(5, 100) / 100f)).toInt()
+            val fillDrawable = innerFill?.background as? android.graphics.drawable.GradientDrawable
+            fillDrawable?.setColor(fillColor)
+
+            val fillWidth = (dpToPx(18) * (level.coerceIn(5, 100) / 100f)).toInt()
             val lp = innerFill?.layoutParams as? FrameLayout.LayoutParams
             lp?.width = fillWidth
             innerFill?.layoutParams = lp
@@ -238,13 +294,15 @@ class FakeStatusBarService : Service() {
     }
 
     private fun stopOverlay() {
-        if (overlayView != null && windowManager != null) {
+        if (overlayContainer != null && windowManager != null) {
             try {
-                windowManager?.removeView(overlayView)
+                windowManager?.removeView(overlayContainer)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            overlayView = null
+            overlayContainer = null
+            pillLayout = null
+            layoutParams = null
         }
         isRunning = false
     }

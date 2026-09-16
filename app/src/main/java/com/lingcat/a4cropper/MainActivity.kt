@@ -377,6 +377,20 @@ fun MainAppNav() {
 fun HomeScreen(onOpenTool: (String) -> Unit) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredTools = remember(searchQuery) {
+        if (searchQuery.isBlank()) {
+            ToolList
+        } else {
+            val q = searchQuery.trim().lowercase()
+            ToolList.filter {
+                it.title.lowercase().contains(q) ||
+                it.subtitle.lowercase().contains(q) ||
+                it.tag.lowercase().contains(q)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -411,17 +425,86 @@ fun HomeScreen(onOpenTool: (String) -> Unit) {
             }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 顶部小巧精致搜索框 (Soft UI)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp),
+            shape = RoundedCornerShape(21.dp),
+            color = Color.White,
+            shadowElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🔍", fontSize = 14.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                androidx.compose.foundation.text.BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontSize = 13.sp,
+                        color = Color(0xFF1E293B)
+                    ),
+                    decorationBox = { innerTextField ->
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "搜索工具名称、功能关键词...",
+                                fontSize = 13.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+                if (searchQuery.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE2E8F0))
+                            .clickable { searchQuery = "" },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✕", fontSize = 10.sp, color = Color(0xFF64748B))
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(if (isLandscape) 8.dp else 12.dp))
 
-        // 全能网格矩阵：横屏 4 列，竖屏 2 列
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(if (isLandscape) 4 else 2),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(ToolList) { tool ->
-                ToolCard(tool = tool, isLandscape = isLandscape, onClick = { onOpenTool(tool.id) })
+        if (filteredTools.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("🐱", fontSize = 36.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("未找到相关小工具喵~", fontSize = 13.sp, color = Color(0xFF94A3B8))
+                }
+            }
+        } else {
+            // 全能网格矩阵：横屏 4 列，竖屏 2 列
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (isLandscape) 4 else 2),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(filteredTools, key = { it.id }) { tool ->
+                    ToolCard(tool = tool, isLandscape = isLandscape, onClick = { onOpenTool(tool.id) })
+                }
             }
         }
     }

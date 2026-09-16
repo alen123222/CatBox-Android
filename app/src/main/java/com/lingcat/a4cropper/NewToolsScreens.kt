@@ -929,7 +929,7 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
                         color = if (fakePercent <= 10) Color(0xFFEF4444) else Color(0xFF10B981)
                     )
                     Text(
-                        text = if (isOverlayEnabled) "🟢 状态栏即时伪装已开启 (全局覆盖)" else "⚪ 状态栏即时伪装未开启",
+                        text = if (isOverlayEnabled) "🟢 状态栏即时伪装已开启 (长按/拖动可自由调整位置)" else "⚪ 状态栏即时伪装未开启",
                         fontSize = 12.sp,
                         color = if (isOverlayEnabled) Color(0xFF34D399) else Color(0xFF94A3B8)
                     )
@@ -944,23 +944,50 @@ fun FakeBatteryScreen(onBack: () -> Unit) {
                 shape = RoundedCornerShape(20.dp),
                 color = Color.White
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("系统状态栏实时悬浮伪装", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E293B))
-                        Text("修改后在整个手机顶部状态栏即时生效", fontSize = 12.sp, color = Color(0xFF64748B))
-                    }
-                    Switch(
-                        checked = isOverlayEnabled,
-                        onCheckedChange = { checked ->
-                            updateOverlay(checked, fakePercent, isCharging, isLowBatteryMode)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("系统状态栏实时悬浮伪装", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E293B))
+                            Text("修改后在整个手机顶部状态栏即时生效", fontSize = 12.sp, color = Color(0xFF64748B))
                         }
-                    )
+                        Switch(
+                            checked = isOverlayEnabled,
+                            onCheckedChange = { checked ->
+                                updateOverlay(checked, fakePercent, isCharging, isLowBatteryMode)
+                            }
+                        )
+                    }
+
+                    if (isOverlayEnabled) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFF1F5F9))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("💡 长按/拖拽顶部电量胶囊可任意移动位置", fontSize = 11.sp, color = Color(0xFF475569))
+                            TextButton(
+                                onClick = {
+                                    val prefs = context.getSharedPreferences("FakeStatusBarPrefs", Context.MODE_PRIVATE)
+                                    prefs.edit().clear().apply()
+                                    updateOverlay(false, fakePercent, isCharging, isLowBatteryMode)
+                                    updateOverlay(true, fakePercent, isCharging, isLowBatteryMode)
+                                    Toast.makeText(context, "已复位至右上角默认位置", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text("复位位置", fontSize = 11.sp, color = Color(0xFF3B82F6))
+                            }
+                        }
+                    }
                 }
             }
 
